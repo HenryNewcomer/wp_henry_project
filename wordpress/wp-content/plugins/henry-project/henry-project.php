@@ -15,6 +15,13 @@ class HenryProject {
     private $settings;
     private $page_ids;
 
+    // Role hierarchy (sets explicit weights to determine what roles are "higher"/"lower" rankings)
+    private static $ROLE_HIERARCHY = [
+        'administrator' => 100,
+        'editor' => 60,
+        'subscriber' => 20
+    ];
+
     public function __construct() {
         $this->settings = get_option('henry_project_settings', [
             'per_page' => 10,
@@ -33,13 +40,11 @@ class HenryProject {
         add_action('wp_enqueue_scripts', [$this, 'enqueue_assets']);
         add_action('rest_api_init', [$this, 'register_rest_endpoints']);
 
-        // AJAX handlers (non-admin only)
-        if (!is_admin()) {
-            add_action('wp_ajax_henry_project_get_entries', [$this, 'ajax_get_entries']);
-            add_action('wp_ajax_henry_project_create_entry', [$this, 'ajax_create_entry']);
-            add_action('wp_ajax_henry_project_update_entry', [$this, 'ajax_update_entry']);
-            add_action('wp_ajax_henry_project_delete_entry', [$this, 'ajax_delete_entry']);
-        }
+        // AJAX handlers
+        add_action('wp_ajax_henry_project_get_entries', [$this, 'ajax_get_entries']);
+        add_action('wp_ajax_henry_project_create_entry', [$this, 'ajax_create_entry']);
+        add_action('wp_ajax_henry_project_update_entry', [$this, 'ajax_update_entry']);
+        add_action('wp_ajax_henry_project_delete_entry', [$this, 'ajax_delete_entry']);
     }
 
     public function add_menu_pages() {
@@ -171,23 +176,6 @@ class HenryProject {
         ]);
     }
 
-    // public function add_page_templates($templates) {
-    //     $templates['henry-project-entries'] = __('Henry Project Entries', 'henry-project');
-    //     return $templates;
-    // }
-
-    // public function load_page_template($template) {
-    //     if (is_page()) {
-    //         $template_file = get_post_meta(get_the_ID(), '_wp_page_template', true);
-
-    //         if ('henry-project-entries' === $template_file) {
-    //             return plugin_dir_path(__FILE__) . 'templates/page-entries.php';
-    //         }
-    //     }
-
-    //     return $template;
-    // }
-
     public function enqueue_assets() {
         if (!is_page($this->page_ids['entries'])) {
             return;
@@ -201,12 +189,18 @@ class HenryProject {
         );
 
         wp_enqueue_style(
-            'henry-project-styles',
-            plugin_dir_url(__FILE__) . 'css/style.css',
+            'bootstrap-icons',
+            'https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css',
             ['henry-project-bootstrap'],
-            filemtime(plugin_dir_path(__FILE__) . 'css/style.css')
+            '1.11.3'
         );
 
+        wp_enqueue_style(
+            'henry-project-styles',
+            plugin_dir_url(__FILE__) . 'css/style.css',
+            ['henry-project-bootstrap', 'bootstrap-icons'],
+            filemtime(plugin_dir_path(__FILE__) . 'css/style.css')
+        );
 
         // Determine view type (REST is the default since that's the modern standard)
         $view_type = isset($_GET['view']) && $_GET['view'] === 'ajax' ? 'ajax' : 'rest';
@@ -334,20 +328,43 @@ class HenryProject {
 
     // AJAX Methods
     public function ajax_get_entries() {
-        check_ajax_referer('henry_project_nonce', 'nonce');
+        error_log('AJAX get_entries called');
+        error_log('REQUEST: ' . print_r($_REQUEST, true));
+        error_log('GET: ' . print_r($_GET, true));
 
-        $args = $this->get_query_args(
-            isset($_GET['page']) ? (int)$_GET['page'] : 1,
-            isset($_GET['order']) ? sanitize_text_field($_GET['order']) : 'DESC'
-        );
+        // Verify nonce first
+        if (!check_ajax_referer('henry_project_nonce', 'nonce', false)) {
+            error_log('Nonce verification failed');
+            wp_send_json_error(['message' => 'Security check failed'], 403);
+        }
 
-        $query = new WP_Query($args);
-        $entries = array_map([$this, 'prepare_entry'], $query->posts);
+        error_log('AJAX Get Entries Request: ' . print_r($_REQUEST, true));
 
-        wp_send_json_success([
-            'entries' => $entries,
-            'total_pages' => $query->max_num_pages
-        ]);
+        // Verify this is a GET request
+        if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
+            wp_send_json_error(['message' => 'Invalid request method'], 400);
+        }
+
+        try {
+            // Check nonce from GET parameters
+            check_ajax_referer('henry_project_nonce', 'nonce');
+
+            $args = $this->get_query_args(
+                isset($_GET['page']) ? (int)$_GET['page'] : 1,
+                isset($_GET['order']) ? sanitize_text_field($_GET['order']) : 'DESC'
+            );
+
+            $query = new WP_Query($args);
+            $entries = array_map([$this, 'prepare_entry'], $query->posts);
+
+            wp_send_json_success([
+                'entries' => $entries,
+                'total_pages' => $query->max_num_pages
+            ]);
+        } catch (Exception $e) {
+            error_log('AJAX Get Entries Error: ' . $e->getMessage());
+            wp_send_json_error(['message' => $e->getMessage()], 500);
+        }
     }
 
     public function ajax_create_entry() {
@@ -410,7 +427,6 @@ class HenryProject {
         wp_send_json_success();
     }
 
-    // Helper Methods
     private function get_query_args($page, $order) {
         $args = [
             'post_type' => 'henry_project_entry',
@@ -421,10 +437,50 @@ class HenryProject {
         ];
 
         if (!current_user_can('administrator')) {
-            $args['author'] = get_current_user_id();
+            add_filter('posts_where', [$this, 'filter_posts_by_role_level']);
         }
 
         return $args;
+    }
+
+    private function filter_posts_by_role_level($where) {
+        global $wpdb;
+        $current_user_level = $this->get_user_role_level();
+        $current_user_id = get_current_user_id();
+
+        // Filter posts where the author's role level is less than or equal to current user's level
+        // Also ensure that user's see their own posts regardless (I was unsure if they should *always* see their own or not, but this seemed logical).
+        $where .= $wpdb->prepare("
+            AND {$wpdb->posts}.post_author IN (
+                SELECT u.ID
+                FROM {$wpdb->users} u
+                INNER JOIN {$wpdb->usermeta} um ON u.ID = um.user_id
+                WHERE um.meta_key = '{$wpdb->prefix}capabilities'
+                AND (
+                    u.ID = %d  /* Author's own posts */
+                    OR
+                    (
+                        /* Check if user has no roles (treat as lowest level) */
+                        (um.meta_value = 'a:0:{}' AND %d > 0)
+                        OR
+                        /* Check for specific role levels */
+                        (
+                            um.meta_value LIKE '%\"subscriber\"%' AND %d >= %d
+                            OR um.meta_value LIKE '%\"editor\"%' AND %d >= %d
+                        )
+                    )
+                )
+            )",
+            $current_user_id,
+            $current_user_level,
+            $current_user_level, self::$ROLE_HIERARCHY['subscriber'],
+            $current_user_level, self::$ROLE_HIERARCHY['editor']
+        );
+
+        // Clean up (remove the filter after use to avoid affecting other queries)
+        remove_filter('posts_where', [$this, 'filter_posts_by_role_level']);
+
+        return $where;
     }
 
     private function create_entry_post($content) {
@@ -438,16 +494,20 @@ class HenryProject {
 
     private function prepare_entry($post) {
         $author = get_user_by('id', $post->post_author);
+        $current_user_level = $this->get_user_role_level();
+        $author_level = $this->get_user_role_level($author);
 
         return [
             'id' => $post->ID,
             'content' => $post->post_title,
             'author' => [
                 'name' => $author->display_name,
-                'roles' => array_map('ucfirst', $author->roles)
+                'roles' => array_map('ucfirst', $author->roles),
+                'level' => $author_level
             ],
             'date' => get_the_date('c', $post),
-            'can_edit' => current_user_can('edit_post', $post->ID)
+            'can_edit' => current_user_can('edit_post', $post->ID),
+            'can_view' => $current_user_level >= $author_level
         ];
     }
 
@@ -459,6 +519,32 @@ class HenryProject {
         $user = wp_get_current_user();
         $roles = array_map('ucfirst', $user->roles);
         echo '<div class="alert alert-info">Currently viewing as: ' . implode(', ', $roles) . '</div>';
+    }
+
+    private function get_user_role_level($user = null) {
+        if (!$user) {
+            $user = wp_get_current_user();
+        }
+
+        // Get the user's highest role
+        $user_roles = $user->roles;
+        $highest_level = 0;
+
+        foreach ($user_roles as $role) {
+            if (isset(self::$ROLE_HIERARCHY[$role]) && self::$ROLE_HIERARCHY[$role] > $highest_level) {
+                $highest_level = self::$ROLE_HIERARCHY[$role];
+            }
+        }
+
+        return $highest_level;
+    }
+
+    private function can_user_view_content($content_author_id) {
+        $current_user_level = $this->get_user_role_level();
+        $content_author = get_user_by('id', $content_author_id);
+        $content_author_level = $this->get_user_role_level($content_author);
+
+        return $current_user_level >= $content_author_level;
     }
 }
 

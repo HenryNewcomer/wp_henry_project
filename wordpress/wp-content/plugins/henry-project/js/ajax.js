@@ -2,11 +2,12 @@
  * AJAX Implementation
  */
 jQuery(function($) {
+    const default_per_page = 10;
     const state = {
         page: 1,
         order: 'DESC',
         loading: false,
-        perPage: henryProject.perPage || 10
+        perPage: henryProject.perPage || default_per_page
     };
 
     const entriesContainer = $('#entries-list');
@@ -51,7 +52,7 @@ jQuery(function($) {
         if (!entries.length) {
             entriesContainer.html(`
                 <div class="alert alert-info">
-                    No entries found.
+                    No entries available for your role level.
                 </div>
             `);
             return;
@@ -59,24 +60,29 @@ jQuery(function($) {
 
         entriesContainer.html(entries.map(entry => `
             <div class="henry-project-entry" data-entry-id="${entry.id}">
-                <div class="d-flex justify-content-between">
+                <div class="d-flex justify-content-between align-items-start">
                     <div class="entry-content ${entry.can_edit ? 'editable' : ''}"
                          ${entry.can_edit ? 'contenteditable="true"' : ''}>
                         ${escapeHtml(entry.content)}
                     </div>
                     ${entry.can_edit ? `
-                        <div class="henry-project-actions">
-                            <button class="btn btn-sm btn-outline-danger delete-entry">
+                        <div class="henry-project-actions ms-3">
+                            <button class="btn btn-sm btn-outline-danger delete-entry"
+                                    title="Delete Entry">
                                 <i class="bi bi-trash"></i>
                             </button>
                         </div>
                     ` : ''}
                 </div>
-                <small class="text-muted d-block mt-2">
-                    By ${escapeHtml(entry.author.name)}
-                    (${entry.author.roles.join(', ')})
-                    on ${new Date(entry.date).toLocaleDateString()}
-                </small>
+                <div class="entry-meta d-flex justify-content-between align-items-center mt-2">
+                    <small class="text-muted">
+                        By ${escapeHtml(entry.author.name)}
+                        <span class="badge bg-secondary ms-1">${entry.author.roles.join(', ')}</span>
+                    </small>
+                    <small class="text-muted">
+                        ${new Date(entry.date).toLocaleDateString()}
+                    </small>
+                </div>
             </div>
         `).join(''));
 
@@ -89,7 +95,7 @@ jQuery(function($) {
             return;
         }
 
-        let pages = [];
+        const pages = [];
         for (let i = 1; i <= totalPages; i++) {
             pages.push(`
                 <li class="page-item ${i === state.page ? 'active' : ''}">
@@ -100,7 +106,7 @@ jQuery(function($) {
 
         paginationContainer.html(`
             <nav aria-label="Entries pagination">
-                <ul class="pagination">
+                <ul class="pagination justify-content-center">
                     ${pages.join('')}
                 </ul>
             </nav>
@@ -133,10 +139,11 @@ jQuery(function($) {
         e.preventDefault();
         const input = $('#entry-content');
         const content = input.val().trim();
+        const submitBtn = form.find('[type="submit"]');
 
         if (!content) return;
 
-        const submitBtn = form.find('[type="submit"]').prop('disabled', true);
+        submitBtn.prop('disabled', true);
 
         $.ajax({
             url: henryProject.ajaxUrl,
@@ -240,15 +247,22 @@ jQuery(function($) {
     }
 
     function showAlert(message, type) {
+        $('.alert').remove();
+
         const alert = $(`
             <div class="alert alert-${type} alert-dismissible fade show" role="alert">
                 ${message}
-                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                <button type="button" class="btn-close" onclick="this.parentElement.remove()" aria-label="Close">×</button>
             </div>
         `);
 
         entriesContainer.before(alert);
-        setTimeout(() => alert.alert('close'), 3000);
+
+        setTimeout(() => {
+            if (alert.length) {
+                alert.remove();
+            }
+        }, 3000);
     }
 
     function escapeHtml(str) {
@@ -261,8 +275,12 @@ jQuery(function($) {
     sortToggle.on('click', function() {
         state.order = state.order === 'DESC' ? 'ASC' : 'DESC';
         $(this).find('i').toggleClass('bi-sort-down bi-sort-up');
+        $(this).attr('title', `Sort ${state.order === 'DESC' ? 'Oldest First' : 'Newest First'}`);
         fetchEntries();
     });
+
+    // Initialize tooltip
+    sortToggle.attr('title', 'Sort Newest First');
 
     // Initial load
     fetchEntries();

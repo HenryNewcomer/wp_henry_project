@@ -2,11 +2,12 @@
  * REST API Implementation
  */
 document.addEventListener('DOMContentLoaded', function() {
+    const default_per_page = 10;
     const state = {
         page: 1,
         order: 'DESC',
         loading: false,
-        perPage: henryProject.perPage || 10
+        perPage: henryProject.perPage || default_per_page
     };
 
     const entriesContainer = document.getElementById('entries-list');
@@ -39,7 +40,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!entries.length) {
             entriesContainer.innerHTML = `
                 <div class="alert alert-info">
-                    No entries found.
+                    No entries available for your role level.
                 </div>
             `;
             return;
@@ -47,24 +48,29 @@ document.addEventListener('DOMContentLoaded', function() {
 
         entriesContainer.innerHTML = entries.map(entry => `
             <div class="henry-project-entry" data-entry-id="${entry.id}">
-                <div class="d-flex justify-content-between">
+                <div class="d-flex justify-content-between align-items-start">
                     <div class="entry-content ${entry.can_edit ? 'editable' : ''}"
                          ${entry.can_edit ? 'contenteditable="true"' : ''}>
                         ${escapeHtml(entry.content)}
                     </div>
                     ${entry.can_edit ? `
-                        <div class="henry-project-actions">
-                            <button class="btn btn-sm btn-outline-danger delete-entry">
+                        <div class="henry-project-actions ms-3">
+                            <button class="btn btn-sm btn-outline-danger delete-entry"
+                                    title="Delete Entry">
                                 <i class="bi bi-trash"></i>
                             </button>
                         </div>
                     ` : ''}
                 </div>
-                <small class="text-muted d-block mt-2">
-                    By ${escapeHtml(entry.author.name)}
-                    (${entry.author.roles.join(', ')})
-                    on ${new Date(entry.date).toLocaleDateString()}
-                </small>
+                <div class="entry-meta d-flex justify-content-between align-items-center mt-2">
+                    <small class="text-muted">
+                        By ${escapeHtml(entry.author.name)}
+                        <span class="badge bg-secondary ms-1">${entry.author.roles.join(', ')}</span>
+                    </small>
+                    <small class="text-muted">
+                        ${new Date(entry.date).toLocaleDateString()}
+                    </small>
+                </div>
             </div>
         `).join('');
 
@@ -88,7 +94,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         paginationContainer.innerHTML = `
             <nav aria-label="Entries pagination">
-                <ul class="pagination">
+                <ul class="pagination justify-content-center">
                     ${pages.join('')}
                 </ul>
             </nav>
@@ -126,8 +132,11 @@ document.addEventListener('DOMContentLoaded', function() {
         e.preventDefault();
         const input = document.getElementById('entry-content');
         const content = input.value.trim();
+        const submitButton = form.querySelector('button[type="submit"]');
 
         if (!content) return;
+
+        submitButton.disabled = true;
 
         try {
             await wp.apiFetch({
@@ -142,6 +151,8 @@ document.addEventListener('DOMContentLoaded', function() {
             showSuccess('Entry added successfully');
         } catch (error) {
             showError(error.message || 'Error adding entry');
+        } finally {
+            submitButton.disabled = false;
         }
     }
 
@@ -189,28 +200,31 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function showError(message) {
-        const alert = createAlert(message, 'danger');
-        entriesContainer.insertAdjacentElement('beforebegin', alert);
+        showAlert(message, 'danger');
     }
 
     function showSuccess(message) {
-        const alert = createAlert(message, 'success');
-        entriesContainer.insertAdjacentElement('beforebegin', alert);
+        showAlert(message, 'success');
     }
 
-    function createAlert(message, type) {
+    function showAlert(message, type) {
+        document.querySelectorAll('.alert').forEach(alert => alert.remove());
+
         const alert = document.createElement('div');
         alert.className = `alert alert-${type} alert-dismissible fade show`;
+        alert.role = 'alert';
         alert.innerHTML = `
             ${message}
-            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            <button type="button" class="btn-close" onclick="this.parentElement.remove()" aria-label="Close">×</button>
         `;
 
-        setTimeout(() => {
-            alert.remove();
-        }, 3000);
+        entriesContainer.insertAdjacentElement('beforebegin', alert);
 
-        return alert;
+        setTimeout(() => {
+            if (alert && alert.parentNode) {
+                alert.remove();
+            }
+        }, 3000);
     }
 
     function escapeHtml(str) {
@@ -226,8 +240,12 @@ document.addEventListener('DOMContentLoaded', function() {
         state.order = state.order === 'DESC' ? 'ASC' : 'DESC';
         sortToggle.querySelector('i').classList.toggle('bi-sort-down');
         sortToggle.querySelector('i').classList.toggle('bi-sort-up');
+        sortToggle.setAttribute('title', `Sort ${state.order === 'DESC' ? 'Oldest First' : 'Newest First'}`);
         fetchEntries();
     });
+
+    // Initialize tooltip
+    sortToggle.setAttribute('title', 'Sort Newest First');
 
     // Initial load
     fetchEntries();
