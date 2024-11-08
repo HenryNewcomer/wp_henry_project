@@ -1,0 +1,15 @@
+# Ignore everything
+*
+
+# Un-ignore .gitignore, of course
+!.gitignore
+
+# Un-ignore each directory in the path down to my plugin (due to the cascading whitelist required)
+!wordpress/
+!wordpress/wp-content/
+!wordpress/wp-content/plugins/
+!wordpress/wp-content/plugins/henry-project/
+!wordpress/wp-content/plugins/henry-project/**
+
+# Ignore plugin's NPM (as it's only being used for Grunt)
+wordpress/wp-content/plugins/henry-project/node_modules/

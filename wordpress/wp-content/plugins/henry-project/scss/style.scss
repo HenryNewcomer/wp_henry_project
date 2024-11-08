@@ -1,0 +1,268 @@
+// Variables
+$transition-speed: 0.2s;
+$border-radius: 4px;
+$spacing-unit: 1rem;
+
+// Mixins
+@mixin fade-transition {
+    transition: all $transition-speed ease-in-out;
+}
+
+@mixin hover-lift {
+    transition: transform $transition-speed ease-in-out;
+    &:hover {
+        transform: translateY(-2px);
+    }
+}
+
+// WordPress Admin Bar Fix
+html {
+    margin-top: 32px !important;
+
+    @media screen and (max-width: 782px) {
+        margin-top: 46px !important;
+    }
+}
+
+body.admin-bar {
+    min-height: calc(100vh - 32px);
+
+    #wpadminbar {
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        width: 100% !important;
+    }
+
+    @media screen and (max-width: 782px) {
+        min-height: calc(100vh - 46px);
+    }
+}
+
+// Main container
+.henry-project {
+    &-container {
+        max-width: 800px;
+        margin: 2rem auto;
+        padding: 0 $spacing-unit;
+
+        // Ensure it works within theme structure
+        .entry-content & {
+            width: 100%;
+        }
+
+        @media (max-width: 768px) {
+            margin: $spacing-unit auto;
+            padding: 0 calc($spacing-unit / 2);
+        }
+    }
+
+    &-form {
+        margin-bottom: 2rem;
+        padding: $spacing-unit;
+        background: #fff;
+        border-radius: $border-radius;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+
+        .form-control {
+            &:focus {
+                box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+            }
+        }
+    }
+
+    &-entry {
+        margin-bottom: $spacing-unit;
+        padding: $spacing-unit;
+        background: #fff;
+        border: 1px solid #e9ecef;
+        border-radius: $border-radius;
+        @include hover-lift;
+
+        &.deleting {
+            opacity: 0.5;
+            pointer-events: none;
+        }
+
+        .entry-content {
+            &.editable {
+                padding: 0.25rem;
+                border-radius: $border-radius;
+                cursor: pointer;
+                @include fade-transition;
+
+                &:hover {
+                    background-color: #f8f9fa;
+                }
+
+                &:focus {
+                    outline: none;
+                    background-color: #fff;
+                    box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+                }
+            }
+        }
+    }
+
+    &-actions {
+        opacity: 0.5;
+        @include fade-transition;
+
+        &:hover {
+            opacity: 1;
+        }
+
+        .btn {
+            padding: 0.25rem 0.5rem;
+        }
+    }
+}
+
+// Bootstrap overrides within the container
+.henry-project-container {
+    max-width: 800px;
+    margin: 2rem auto;
+    padding: 0 $spacing-unit;
+
+    // Reset box-sizing only within the plugin's container
+    *, ::before, ::after {
+        box-sizing: border-box;
+    }
+
+    @media (max-width: 768px) {
+        margin: $spacing-unit auto;
+        padding: 0 calc($spacing-unit / 2);
+    }
+
+    // Card styling
+    .card {
+        background: var(--wp--preset--color--base-2, #fff);
+        border: 1px solid var(--wp--preset--color--contrast-3, #e9ecef);
+        border-radius: $border-radius;
+        margin-bottom: $spacing-unit;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+
+        .card-header {
+            background: var(--wp--preset--color--base, #f8f9fa);
+            border-bottom: 1px solid var(--wp--preset--color--contrast-3, #e9ecef);
+            padding: $spacing-unit;
+        }
+
+        .card-body {
+            padding: $spacing-unit;
+        }
+    }
+
+    // Form styling
+    .henry-project-form {
+        margin-bottom: 2rem;
+
+        .form-control {
+            &:focus {
+                box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+            }
+        }
+    }
+
+    // Entry styling
+    .henry-project-entry {
+        margin-bottom: $spacing-unit;
+        padding: $spacing-unit;
+        background: var(--wp--preset--color--base-2, #fff);
+        border: 1px solid var(--wp--preset--color--contrast-3, #e9ecef);
+        border-radius: $border-radius;
+        @include hover-lift;
+
+        &.deleting {
+            opacity: 0.5;
+            pointer-events: none;
+        }
+
+        .entry-content {
+            &.editable {
+                padding: 0.25rem;
+                border-radius: $border-radius;
+                cursor: pointer;
+                @include fade-transition;
+
+                &:hover {
+                    background-color: var(--wp--preset--color--base, #f8f9fa);
+                }
+
+                &:focus {
+                    outline: none;
+                    background-color: var(--wp--preset--color--base-2, #fff);
+                    box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+                }
+            }
+        }
+    }
+
+    // Action buttons
+    .henry-project-actions {
+        opacity: 0.5;
+        @include fade-transition;
+
+        &:hover {
+            opacity: 1;
+        }
+
+        .btn {
+            padding: 0.25rem 0.5rem;
+        }
+    }
+
+    // Loading state
+    .loading {
+        position: relative;
+        min-height: 200px;
+        opacity: 0.7;
+        pointer-events: none;
+
+        &::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 2rem;
+            height: 2rem;
+            margin: -1rem 0 0 -1rem;
+            border: 3px solid var(--wp--preset--color--base, #f3f3f3);
+            border-top: 3px solid var(--wp--preset--color--contrast, #3498db);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+    }
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+// Utility classes
+.pagination {
+    .page-link {
+        @include fade-transition;
+
+        &:focus {
+            box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+        }
+    }
+}
+
+// Ensure theme's block styles take precedence
+.wp-site-blocks {
+    > * {
+        margin-block-start: 1.2rem;
+        margin-block-end: 0;
+    }
+
+    > :last-child {
+        margin-block-end: 0;
+    }
+}
+
+.test {
+    border: 1px solid red !important;
+}
