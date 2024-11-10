@@ -15,9 +15,10 @@ class HenryProject {
     private $settings;
     private $page_ids;
 
-    // Role hierarchy (sets explicit weights to determine what roles are "higher"/"lower" rankings)
+    // Role hierarchy (core roles with explicit viewing weights)
+    // NOTE: If this plugin were to be extended, I'd place these into the admin area, too, to be sorted.
     private static $ROLE_HIERARCHY = [
-        'administrator' => 100,
+        'administrator' => 100, // Can see everything
         'editor' => 60,
         'subscriber' => 20
     ];
@@ -171,7 +172,7 @@ class HenryProject {
             'supports' => ['title', 'author'],
             'has_archive' => true,
             'show_in_menu' => 'henry-project-settings',
-            'capability_type' => 'post',
+            'capability_type' => 'post', // Just use default posting capabilities
             'map_meta_cap' => true
         ]);
     }
@@ -368,7 +369,15 @@ class HenryProject {
     }
 
     public function ajax_create_entry() {
+        error_log('Create entry attempt by user: ' . get_current_user_id()); // DEBUG
+
         check_ajax_referer('henry_project_nonce', 'nonce');
+
+        if (!is_user_logged_in()) {
+            error_log('User not logged in');
+            wp_send_json_error(['message' => __('You must be logged in to create entries', 'henry-project')]);
+            return;
+        }
 
         $content = sanitize_text_field($_POST['content']);
 
@@ -389,11 +398,14 @@ class HenryProject {
         check_ajax_referer('henry_project_nonce', 'nonce');
 
         $post_id = (int)$_POST['id'];
-        $content = sanitize_text_field($_POST['content']);
+        $post = get_post($post_id);
 
-        if (!current_user_can('edit_post', $post_id)) {
+        // Allow only administrators and the current user to update their own entries
+        if (!$post || (!current_user_can('administrator') && $post->post_author != get_current_user_id())) {
             wp_send_json_error(['message' => __('Permission denied', 'henry-project')]);
         }
+
+        $content = sanitize_text_field($_POST['content']);
 
         if (empty($content)) {
             wp_send_json_error(['message' => __('Content cannot be empty', 'henry-project')]);
@@ -415,8 +427,9 @@ class HenryProject {
         check_ajax_referer('henry_project_nonce', 'nonce');
 
         $post_id = (int)$_POST['id'];
+        $post = get_post($post_id);
 
-        if (!current_user_can('delete_post', $post_id)) {
+        if (!$post || $post->post_author != get_current_user_id()) {
             wp_send_json_error(['message' => __('Permission denied', 'henry-project')]);
         }
 
@@ -443,10 +456,35 @@ class HenryProject {
         return $args;
     }
 
-    private function filter_posts_by_role_level($where) {
+    // BUGFIX: Switched to public since it's being used as a filter callback
+    public function filter_posts_by_role_level($where) {
         global $wpdb;
         $current_user_level = $this->get_user_role_level();
         $current_user_id = get_current_user_id();
+
+        // Build the LIKE conditions for roles based on current user's level
+        $role_conditions = [];
+
+        // Get all WordPress roles
+        global $wp_roles;
+        if (!isset($wp_roles)) {
+            $wp_roles = new WP_Roles();
+        }
+
+        // For each WordPress role, determine if it should be visible
+        foreach ($wp_roles->roles as $role_name => $role_info) {
+            // Get the role's level (default to subscriber level if not explicitly defined)
+            $role_level = isset(self::$ROLE_HIERARCHY[$role_name])
+                ? self::$ROLE_HIERARCHY[$role_name]
+                : self::$ROLE_HIERARCHY['subscriber'];
+
+            // If this role's level is <= current user's level, include it
+            if ($role_level <= $current_user_level) {
+                $role_conditions[] = $wpdb->prepare("um.meta_value LIKE %s", '%"' . $role_name . '"%');
+            }
+        }
+
+        $role_sql = !empty($role_conditions) ? implode(' OR ', $role_conditions) : '1=0'; // Sets query to false if no roles match
 
         // Filter posts where the author's role level is less than or equal to current user's level
         // Also ensure that user's see their own posts regardless (I was unsure if they should *always* see their own or not, but this seemed logical).
@@ -463,18 +501,13 @@ class HenryProject {
                         /* Check if user has no roles (treat as lowest level) */
                         (um.meta_value = 'a:0:{}' AND %d > 0)
                         OR
-                        /* Check for specific role levels */
-                        (
-                            um.meta_value LIKE '%\"subscriber\"%' AND %d >= %d
-                            OR um.meta_value LIKE '%\"editor\"%' AND %d >= %d
-                        )
+                        /* Check for roles at or below current user's level */
+                        ({$role_sql})
                     )
                 )
             )",
             $current_user_id,
-            $current_user_level,
-            $current_user_level, self::$ROLE_HIERARCHY['subscriber'],
-            $current_user_level, self::$ROLE_HIERARCHY['editor']
+            $current_user_level
         );
 
         // Clean up (remove the filter after use to avoid affecting other queries)
@@ -484,6 +517,10 @@ class HenryProject {
     }
 
     private function create_entry_post($content) {
+        if (!is_user_logged_in()) {
+            return new WP_Error('permission_denied', __('You must be logged in to create entries', 'henry-project'));
+        }
+
         return wp_insert_post([
             'post_title' => $content,
             'post_type' => 'henry_project_entry',
@@ -496,6 +533,10 @@ class HenryProject {
         $author = get_user_by('id', $post->post_author);
         $current_user_level = $this->get_user_role_level();
         $author_level = $this->get_user_role_level($author);
+        $current_user_id = get_current_user_id();
+
+        $is_admin = current_user_can('administrator');  // Check if user is admin
+        $is_author = $post->post_author == $current_user_id;  // Check if user is the author
 
         return [
             'id' => $post->ID,
@@ -506,13 +547,15 @@ class HenryProject {
                 'level' => $author_level
             ],
             'date' => get_the_date('c', $post),
-            'can_edit' => current_user_can('edit_post', $post->ID),
+            'can_edit' => $is_admin || $is_author,  // Only Admin or author can edit (for this demo)
             'can_view' => $current_user_level >= $author_level
         ];
     }
 
     public function can_edit_entry($request) {
-        return current_user_can('edit_post', $request->get_param('id'));
+        $post = get_post($request->get_param('id'));
+        // Only allow editing if the user is an Admin or the author of the entry
+        return $post && (current_user_can('administrator') || $post->post_author == get_current_user_id());
     }
 
     public static function show_current_role() {
@@ -531,12 +574,55 @@ class HenryProject {
         $highest_level = 0;
 
         foreach ($user_roles as $role) {
-            if (isset(self::$ROLE_HIERARCHY[$role]) && self::$ROLE_HIERARCHY[$role] > $highest_level) {
-                $highest_level = self::$ROLE_HIERARCHY[$role];
+            // If role is explicitly defined in hierarchy, use that level
+            if (isset(self::$ROLE_HIERARCHY[$role])) {
+                $level = self::$ROLE_HIERARCHY[$role];
+                if ($level > $highest_level) {
+                    $highest_level = $level;
+                }
+            } else {
+                // For any other role (like Author, Contributor, or new/custom roles),
+                // treat them like Subscribers for viewing purposes.
+                $level = self::$ROLE_HIERARCHY['subscriber'];
+                if ($level > $highest_level) {
+                    $highest_level = $level;
+                }
             }
         }
 
+
         return $highest_level;
+    }
+
+    private function add_role_capabilities() {
+        global $wp_roles;
+
+        if (!isset($wp_roles)) {
+            $wp_roles = new WP_Roles();
+        }
+
+        // Basic read capability for all roles
+        foreach ($wp_roles->roles as $role_name => $role_info) {
+            $role = get_role($role_name);
+            if ($role) {
+                // Everyone gets basic read capability
+                $role->add_cap('read');
+
+                // If role can 'edit_posts', grant our entry capabilities
+                if (isset($role_info['capabilities']['edit_posts']) && $role_info['capabilities']['edit_posts']) {
+                    $role->add_cap('publish_posts');
+                    $role->add_cap('edit_posts');
+                    $role->add_cap('delete_posts');
+                }
+
+                // Administrator gets all capabilities
+                if ($role_name === 'administrator') {
+                    $role->add_cap('edit_others_posts');
+                    $role->add_cap('delete_others_posts');
+                    $role->add_cap('read_private_posts');
+                }
+            }
+        }
     }
 
     private function can_user_view_content($content_author_id) {
@@ -577,6 +663,9 @@ register_activation_hook(__FILE__, function() {
             update_option('henry_project_pages', $page_ids);
         }
     }
+
+    $plugin = new HenryProject();
+    $plugin->add_role_capabilities();
 });
 
 // Deactivation hook

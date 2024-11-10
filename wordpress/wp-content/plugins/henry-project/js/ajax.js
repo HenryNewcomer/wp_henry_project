@@ -50,11 +50,12 @@ jQuery(function($) {
 
     function renderEntries(entries) {
         if (!entries.length) {
-            entriesContainer.html(`
+            const message = 'No entries available' + (state.page > 1 ? ' on this page' : '');
+            entriesContainer.innerHTML = `
                 <div class="alert alert-info">
-                    No entries available for your role level.
+                    ${message}
                 </div>
-            `);
+            `;
             return;
         }
 
