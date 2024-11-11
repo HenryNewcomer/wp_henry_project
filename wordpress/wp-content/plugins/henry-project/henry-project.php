@@ -429,7 +429,7 @@ class HenryProject {
         $post_id = (int)$_POST['id'];
         $post = get_post($post_id);
 
-        if (!$post || $post->post_author != get_current_user_id()) {
+        if (!$post || (!current_user_can('administrator') && $post->post_author != get_current_user_id())) {
             wp_send_json_error(['message' => __('Permission denied', 'henry-project')]);
         }
 
