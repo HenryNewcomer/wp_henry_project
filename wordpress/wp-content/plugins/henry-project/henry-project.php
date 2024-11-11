@@ -594,7 +594,8 @@ class HenryProject {
         return $highest_level;
     }
 
-    private function add_role_capabilities() {
+    // Bugfix: set to public as plugin activation needs proper access
+    public function add_role_capabilities() {
         global $wp_roles;
 
         if (!isset($wp_roles)) {
@@ -623,14 +624,6 @@ class HenryProject {
                 }
             }
         }
-    }
-
-    private function can_user_view_content($content_author_id) {
-        $current_user_level = $this->get_user_role_level();
-        $content_author = get_user_by('id', $content_author_id);
-        $content_author_level = $this->get_user_role_level($content_author);
-
-        return $current_user_level >= $content_author_level;
     }
 }
 
